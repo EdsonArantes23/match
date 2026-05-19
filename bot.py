@@ -13,9 +13,8 @@ CHAT_ID = os.environ.get("CHAT_ID")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 BSD_API_TOKEN = os.environ.get("BSD_API_TOKEN")
 
-# ID Челси в BSD API (нужно найти один раз и указать здесь)
-# Чтобы найти: curl -H "Authorization: Token $BSD_API_TOKEN" "https://sports.bzzoiro.com/api/v2/teams/?name=Chelsea"
-CHELSEA_TEAM_ID = 42  # ← ЗАМЕНИТЕ НА ПРАВИЛЬНЫЙ ID ПОСЛЕ ПЕРВОГО ЗАПУСКА
+# ID Челси в BSD API (ВРЕМЕННО 0, НАЙДЕМ КОМАНДОЙ /findchelsea)
+CHELSEA_TEAM_ID = 0  # ← НЕ ТРОГАТЬ! Напишите боту /findchelsea, он подскажет ID
 PREMIER_LEAGUE_ID = 17
 BSD_BASE_URL = "https://sports.bzzoiro.com/api/v2"
 
@@ -51,6 +50,8 @@ async def bsd_request(endpoint: str, params: dict = None) -> Optional[dict]:
 
 async def get_chelsea_live_matches() -> list:
     """Активные матчи Челси"""
+    if CHELSEA_TEAM_ID == 0:
+        return []
     data = await bsd_request("events/live/", {"team_id": CHELSEA_TEAM_ID})
     if data and "events" in data:
         return [e for e in data["events"] if e["status"] == "inprogress"]
@@ -71,6 +72,8 @@ async def get_match_stats(event_id: int) -> Optional[dict]:
 
 async def get_chelsea_next_match() -> Optional[dict]:
     """Следующий матч Челси"""
+    if CHELSEA_TEAM_ID == 0:
+        return None
     data = await bsd_request("events/", {
         "team_id": CHELSEA_TEAM_ID,
         "status": "notstarted",
@@ -242,16 +245,64 @@ async def cmd_start(message: Message):
         "🟨 Карточки\n"
         "🔄 Замены\n"
         "📊 Статистика\n\n"
-        "**Команды (только для админа):**\n"
-        "/next - следующий матч\n"
-        "/table - таблица АПЛ"
+        "**Команды:**\n"
+        "/findchelsea - найти ID Челси (только админ)\n"
+        "/next - следующий матч (только админ)\n"
+        "/table - таблица АПЛ (только админ)\n\n"
+        "⚠️ Сначала выполните /findchelsea, чтобы бот узнал Челси!"
     )
+
+
+@dp.message(Command("findchelsea"))
+async def cmd_find_chelsea(message: Message):
+    """Найти ID Челси в API (только админ)"""
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("⛔ Только для администратора.")
+        return
+    
+    await message.answer("🔍 Ищу Chelsea в базе данных API...")
+    
+    # Пробуем разные варианты названия
+    names_to_try = ["Chelsea", "Chelsea FC", "Chelsea London"]
+    found = False
+    
+    for name in names_to_try:
+        data = await bsd_request("teams/", {"name": name})
+        if data and data.get("results"):
+            for team in data["results"]:
+                team_id = team.get("id")
+                team_name = team.get("name")
+                await message.answer(
+                    f"✅ **Найдено!**\n\n"
+                    f"Название: {team_name}\n"
+                    f"ID: `{team_id}`\n\n"
+                    f"Скопируйте этот ID и замените в коде строчку:\n"
+                    f"`CHELSEA_TEAM_ID = 0` → `CHELSEA_TEAM_ID = {team_id}`\n\n"
+                    f"После замены перезапустите бота.",
+                    parse_mode="Markdown"
+                )
+                found = True
+                return
+    
+    if not found:
+        await message.answer(
+            "❌ Не удалось найти Челси.\n\n"
+            "Проверьте:\n"
+            "1. Правильно ли указан BSD_API_TOKEN\n"
+            "2. Есть ли у вас интернет на сервере\n\n"
+            "Можно попробовать позже или написать разработчику API."
+        )
 
 
 @dp.message(Command("next"))
 async def cmd_next_match(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
+    
+    if CHELSEA_TEAM_ID == 0:
+        await bot.send_message(CHAT_ID, "❌ Сначала выполните /findchelsea и настройте ID Челси!")
+        return
+    
     match = await get_chelsea_next_match()
     if match:
         await bot.send_message(CHAT_ID, format_next_match(match))
@@ -263,6 +314,7 @@ async def cmd_next_match(message: Message):
 async def cmd_table(message: Message):
     if message.from_user.id != ADMIN_ID:
         return
+    
     data = await get_table()
     if data:
         await bot.send_message(CHAT_ID, format_table(data))
@@ -276,6 +328,10 @@ async def monitor_matches():
     """Фоновая задача: проверяет live матчи и отправляет события"""
     while True:
         try:
+            if CHELSEA_TEAM_ID == 0:
+                await asyncio.sleep(60)
+                continue
+            
             live_matches = await get_chelsea_live_matches()
             
             for match in live_matches:
