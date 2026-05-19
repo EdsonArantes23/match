@@ -13,8 +13,8 @@ CHAT_ID = os.environ.get("CHAT_ID")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 BSD_API_TOKEN = os.environ.get("BSD_API_TOKEN")
 
-# ID Челси в BSD API (ВРЕМЕННО 0, НАЙДЕМ КОМАНДОЙ /findchelsea)
-CHELSEA_TEAM_ID = 0  # ← НЕ ТРОГАТЬ! Напишите боту /findchelsea, он подскажет ID
+# ID Челси в BSD API (найден через /findchelsea)
+CHELSEA_TEAM_ID = 13  # ✅ НАЙДЕНО ПРАВИЛЬНОЕ ЗНАЧЕНИЕ
 PREMIER_LEAGUE_ID = 17
 BSD_BASE_URL = "https://sports.bzzoiro.com/api/v2"
 
@@ -50,8 +50,6 @@ async def bsd_request(endpoint: str, params: dict = None) -> Optional[dict]:
 
 async def get_chelsea_live_matches() -> list:
     """Активные матчи Челси"""
-    if CHELSEA_TEAM_ID == 0:
-        return []
     data = await bsd_request("events/live/", {"team_id": CHELSEA_TEAM_ID})
     if data and "events" in data:
         return [e for e in data["events"] if e["status"] == "inprogress"]
@@ -72,8 +70,6 @@ async def get_match_stats(event_id: int) -> Optional[dict]:
 
 async def get_chelsea_next_match() -> Optional[dict]:
     """Следующий матч Челси"""
-    if CHELSEA_TEAM_ID == 0:
-        return None
     data = await bsd_request("events/", {
         "team_id": CHELSEA_TEAM_ID,
         "status": "notstarted",
@@ -138,7 +134,7 @@ def format_substitution(incident: dict, home_team: str, away_team: str) -> str:
     )
 
 
-def format_half_time(event_id: int, stats: dict, event_detail: dict) -> str:
+def format_half_time(stats: dict, event_detail: dict) -> str:
     home_stats = stats.get("stats", {}).get("home", {})
     away_stats = stats.get("stats", {}).get("away", {})
     
@@ -239,68 +235,92 @@ def format_table(standings: dict) -> str:
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     await message.answer(
-        "🔵 **Chelsea Match Bot** 🔵\n\n"
-        "Автоматические трансляции матчей Челси:\n"
-        "⚽ Голы\n"
-        "🟨 Карточки\n"
-        "🔄 Замены\n"
-        "📊 Статистика\n\n"
-        "**Команды:**\n"
-        "/findchelsea - найти ID Челси (только админ)\n"
-        "/next - следующий матч (только админ)\n"
-        "/table - таблица АПЛ (только админ)\n\n"
-        "⚠️ Сначала выполните /findchelsea, чтобы бот узнал Челси!"
+        "🔵 **Chelsea FC Live Bot** 🔵\n\n"
+        "Welcome! I automatically post live match updates for Chelsea.\n\n"
+        "Type /help to see all available commands and features."
     )
 
 
-@dp.message(Command("findchelsea"))
-async def cmd_find_chelsea(message: Message):
-    """Найти ID Челси в API (только админ)"""
+@dp.message(Command("help"))
+async def cmd_help(message: Message):
+    """Подробное описание всех возможностей бота"""
+    help_text = (
+        "🔵 **Chelsea FC Live Bot — Full Guide** 🔵\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "**📺 AUTOMATIC LIVE UPDATES**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "When Chelsea plays, the bot automatically posts:\n\n"
+        "⚽ **GOALS** — scorer, minute, assist, current score\n"
+        "🟨 **YELLOW CARDS** — player, minute\n"
+        "🟥 **RED CARDS** — player, minute\n"
+        "🔄 **SUBSTITUTIONS** — who came in, who went out\n"
+        "📊 **HALF-TIME STATS** — possession, shots, corners, pass accuracy\n"
+        "🏁 **FULL-TIME STATS** — final score + xG (expected goals)\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "**🎮 AVAILABLE COMMANDS**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "/start — Welcome message\n"
+        "/help — Show this guide\n"
+        "/next — Next Chelsea match (date & opponent)\n"
+        "/table — Premier League standings\n"
+        "/status — Check if bot is working\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "**⚡ WHAT THE BOT CAN DO**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "✅ Detect match start automatically\n"
+        "✅ Track goals, cards, substitutions in real-time\n"
+        "✅ Show possession, shots, corners, xG\n"
+        "✅ Post half-time and full-time statistics\n"
+        "✅ Work 24/7 without manual intervention\n"
+        "✅ Support English language only\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "**📱 HOW TO USE**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "1. Add this bot to your Chelsea fan group\n"
+        "2. Make the bot an **ADMIN** (required for posting)\n"
+        "3. Wait for the next Chelsea match\n"
+        "4. The bot will do everything automatically!\n\n"
+        "🔵💪 **KTBFFH — Keep The Blue Flag Flying High!**"
+    )
+    await message.answer(help_text, parse_mode="Markdown")
+
+
+@dp.message(Command("status"))
+async def cmd_status(message: Message):
+    """Проверка статуса бота (только админ)"""
     if message.from_user.id != ADMIN_ID:
-        await message.answer("⛔ Только для администратора.")
+        await message.answer("⛔ Admin only.")
         return
     
-    await message.answer("🔍 Ищу Chelsea в базе данных API...")
+    status_text = (
+        "🔵 **Bot Status** 🔵\n\n"
+        f"✅ Chelsea Team ID: `{CHELSEA_TEAM_ID}`\n"
+        f"✅ Premier League ID: `{PREMIER_LEAGUE_ID}`\n"
+        f"✅ Active matches tracked: {len(active_matches)}\n"
+        f"✅ Bot is running and monitoring\n\n"
+        f"📡 Last check: {datetime.now().strftime('%H:%M:%S')} GMT\n\n"
+        f"⚽ Next Chelsea match:\n"
+    )
     
-    # Пробуем разные варианты названия
-    names_to_try = ["Chelsea", "Chelsea FC", "Chelsea London"]
-    found = False
+    next_match = await get_chelsea_next_match()
+    if next_match:
+        date_str = next_match.get("event_date", "").replace("Z", "+00:00")
+        try:
+            event_date = datetime.fromisoformat(date_str)
+            status_text += f"   {next_match.get('home_team')} vs {next_match.get('away_team')} — {event_date.strftime('%d %b %H:%M')}"
+        except:
+            status_text += "   Date unknown"
+    else:
+        status_text += "   No upcoming matches found"
     
-    for name in names_to_try:
-        data = await bsd_request("teams/", {"name": name})
-        if data and data.get("results"):
-            for team in data["results"]:
-                team_id = team.get("id")
-                team_name = team.get("name")
-                await message.answer(
-                    f"✅ **Найдено!**\n\n"
-                    f"Название: {team_name}\n"
-                    f"ID: `{team_id}`\n\n"
-                    f"Скопируйте этот ID и замените в коде строчку:\n"
-                    f"`CHELSEA_TEAM_ID = 0` → `CHELSEA_TEAM_ID = {team_id}`\n\n"
-                    f"После замены перезапустите бота.",
-                    parse_mode="Markdown"
-                )
-                found = True
-                return
-    
-    if not found:
-        await message.answer(
-            "❌ Не удалось найти Челси.\n\n"
-            "Проверьте:\n"
-            "1. Правильно ли указан BSD_API_TOKEN\n"
-            "2. Есть ли у вас интернет на сервере\n\n"
-            "Можно попробовать позже или написать разработчику API."
-        )
+    await message.answer(status_text, parse_mode="Markdown")
 
 
 @dp.message(Command("next"))
 async def cmd_next_match(message: Message):
+    """Следующий матч Челси"""
     if message.from_user.id != ADMIN_ID:
-        return
-    
-    if CHELSEA_TEAM_ID == 0:
-        await bot.send_message(CHAT_ID, "❌ Сначала выполните /findchelsea и настройте ID Челси!")
+        await message.answer("⛔ Admin only.")
         return
     
     match = await get_chelsea_next_match()
@@ -312,7 +332,9 @@ async def cmd_next_match(message: Message):
 
 @dp.message(Command("table"))
 async def cmd_table(message: Message):
+    """Турнирная таблица АПЛ"""
     if message.from_user.id != ADMIN_ID:
+        await message.answer("⛔ Admin only.")
         return
     
     data = await get_table()
@@ -328,10 +350,6 @@ async def monitor_matches():
     """Фоновая задача: проверяет live матчи и отправляет события"""
     while True:
         try:
-            if CHELSEA_TEAM_ID == 0:
-                await asyncio.sleep(60)
-                continue
-            
             live_matches = await get_chelsea_live_matches()
             
             for match in live_matches:
@@ -357,7 +375,7 @@ async def monitor_matches():
                     if not active_matches[event_id].get("halftime"):
                         stats = await get_match_stats(event_id)
                         if stats:
-                            await bot.send_message(CHAT_ID, format_half_time(event_id, stats, detail))
+                            await bot.send_message(CHAT_ID, format_half_time(stats, detail))
                             active_matches[event_id]["halftime"] = True
                 
                 # События (голы, карточки, замены)
